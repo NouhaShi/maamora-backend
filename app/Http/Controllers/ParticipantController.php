@@ -34,12 +34,9 @@ class ParticipantController extends Controller
             $query->where('group_id', $request->input('group_id'));
         }
 
-        if ($request->has('page') || $request->has('per_page')) {
-            $perPage = min((int) $request->input('per_page', 15), 100);
-            return response()->json($query->paginate($perPage));
-        }
+       $perPage = max(1, min((int) $request->input('per_page', 10), 100));
 
-        return response()->json($query->get());
+       return response()->json($query->paginate($perPage)); 
     }
 
     // GET /api/groups/{groupId}/participants?page=1
@@ -50,12 +47,9 @@ class ParticipantController extends Controller
             ->select(['id', 'group_id', 'name', 'email', 'phone', 'created_at'])
             ->latest();
 
-        if ($request->has('page') || $request->has('per_page')) {
-            $perPage = min((int) $request->input('per_page', 15), 100);
-            return response()->json($query->paginate($perPage));
-        }
+        $perPage = max(1, min((int) $request->input('per_page', 10), 100));
 
-        return response()->json($query->get());
+        return response()->json($query->paginate($perPage));
     }
 
     // POST /api/groups/{groupId}/participants

@@ -49,18 +49,10 @@ class GroupController extends Controller
         };
 
         // Support pagination when ?page= or ?per_page= is passed, while keeping backward compatibility
-        if ($request->has('page') || $request->has('per_page')) {
-            $perPage = max(1, min((int) $request->input('per_page', 10), 100));
-            $paginated = $query->paginate($perPage);
-            $paginated->getCollection()->transform($transform);
+       $perPage = max(1, min((int) $request->input('per_page', 10), 100));
 
-            return response()->json($paginated);
-        }
-
-        $groups = $query->get()->map($transform);
-
-        return response()->json($groups);
-    }
+       return response()->json($query->paginate($perPage));
+       }
 
     // GET /api/groups/{id}
     public function show($id)
