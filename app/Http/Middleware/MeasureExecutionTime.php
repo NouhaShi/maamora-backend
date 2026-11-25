@@ -5,11 +5,15 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class MeasureExecutionTime
 {
     public function handle(Request $request, Closure $next)
     {
+        if (! app()->environment('local')) {
+        return $next($request);
+    }
         $start = microtime(true);
 
         // Enable query log to count queries and measure total DB time
@@ -21,6 +25,14 @@ class MeasureExecutionTime
         $queries = DB::getQueryLog();
         $dbTime = round(collect($queries)->sum('time'), 2);
         $queryCount = count($queries);
+        // Log execution time of each database query
+         foreach ($queries as $index => $query) {
+         Log::info('Database Query Performance', [
+        'query_number' => $index + 1,
+        'sql' => $query['query'],
+        'time_ms' => $query['time'],
+         ]);
+         }
 
         // Attach performance metrics to response headers
         $response->headers->set('X-Total-Time', $totalTime . ' ms');

@@ -5,33 +5,57 @@ namespace App\Http\Controllers;
 use App\Models\Group;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
+use Illuminate\Support\Facades\Cache;
 class GroupController extends Controller
 {
-    // GET /api/groups
-    public function index(Request $request)
-    {
+// GET /api/groups
+public function index(Request $request)
+{
+    $perPage = max(1, min((int) $request->input('per_page', 10), 100));
+
+    $search = $request->input('search', '');
+    $status = $request->input('status', '');
+
+    // Cache version allows us to invalidate all groups list caches
+    $version = Cache::get('groups:list:version', 'v1');
+
+    // Each page, search and status filter gets its own cache
+    $cacheKey = 'groups:list:' . $version . ':' . md5(http_build_query([
+        'page' => $request->input('page', 1),
+        'per_page' => $perPage,
+        'search' => $search,
+        'status' => $status,
+    ]));
+
+    $groups = Cache::remember($cacheKey, now()->addSeconds(30), function () use (
+        $request,
+        $perPage,
+        $search,
+        $status
+    ) {
         $query = Group::select([
-    'id',
-    'name',
-    'capacity',
-    'current_count',
-    'status',
-    'created_at'
-           ])->latest();
+            'id',
+            'name',
+            'capacity',
+            'current_count',
+            'status',
+            'created_at',
+        ])->latest();
 
         // Optional server-side search
-        if ($request->filled('search')) {
-            $search = $request->input('search');
+        if ($search !== '') {
             $query->where('name', 'ilike', "%{$search}%");
         }
 
         // Optional server-side status filter
-        if ($request->filled('status') && $request->input('status') !== 'All Status') {
-            $query->where('status', $request->input('status'));
+        if ($status !== '' && $status !== 'All Status') {
+            $query->where('status', $status);
         }
 
-        $transform = function ($group) {
+        $groups = $query->paginate($perPage);
+
+        // Calculate percentage and status
+        $groups->getCollection()->transform(function ($group) {
             $count = (int) $group->current_count;
             $capacity = (int) $group->capacity;
 
@@ -46,13 +70,13 @@ class GroupController extends Controller
                 'created_at' => $group->created_at,
                 'status' => $this->getStatus($count, $capacity),
             ];
-        };
+        });
 
-        // Support pagination when ?page= or ?per_page= is passed, while keeping backward compatibility
-       $perPage = max(1, min((int) $request->input('per_page', 10), 100));
+        return $groups->toArray();
+    });
 
-       return response()->json($query->paginate($perPage));
-       }
+    return response()->json($groups);
+}
 
     // GET /api/groups/{id}
     public function show($id)
@@ -96,7 +120,13 @@ class GroupController extends Controller
             'current_count' => 0,
             'status' => 'Low',
         ]);
-
+        // Clear dashboard statistics cache
+        Cache::forget('dashboard:global_stats');
+        // Invalidate groups list cache
+         Cache::forever(
+         'groups:list:version',
+         (int) Cache::get('groups:list:version', 0) + 1
+        );
         return response()->json([
             'message' => 'Group created successfully.',
             'group' => $group,
@@ -133,6 +163,15 @@ class GroupController extends Controller
         $group->current_count = $actualCount;
         $group->status = $this->getStatus($actualCount, $group->capacity);
         $group->save();
+        // Invalidate caches after transaction commits
+DB::afterCommit(function () {
+    Cache::forget('dashboard:global_stats');
+
+    Cache::forever(
+        'groups:list:version',
+        (int) Cache::get('groups:list:version', 0) + 1
+    );
+});
 
         return response()->json([
             'message' => 'Group updated successfully.',

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Notifications\GroupFullNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -108,7 +109,13 @@ class ParticipantController extends Controller
                 'message' => 'This group has reached its maximum capacity.',
             ], 422);
         }
-
+        // Clear dashboard statistics cache
+        Cache::forget('dashboard:global_stats');
+        // Invalidate groups list cache
+          Cache::forever(
+          'groups:list:version',
+          (int) Cache::get('groups:list:version', 0) + 1
+         );
         $group = $result['group'];
         $oldPercentage = $result['old_percentage'];
         $percentage = $result['percentage'];

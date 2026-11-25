@@ -6,49 +6,52 @@ use App\Models\Group;
 use App\Models\GroupProgressHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class DashboardController extends Controller
 {
     public function index(Request $request)
     {
         // 1. Global statistics
-        $stats = Group::selectRaw("
-            COUNT(*) as total_groups,
-            COALESCE(SUM(current_count), 0) as total_participants,
-            COALESCE(SUM(capacity), 0) as total_capacity,
+        $stats = Cache::remember('dashboard:global_stats', 30, function () {
+    return Group::selectRaw("
+        COUNT(*) as total_groups,
+        COALESCE(SUM(current_count), 0) as total_participants,
+        COALESCE(SUM(capacity), 0) as total_capacity,
 
-            COUNT(CASE
-                WHEN capacity <= 0
-                OR (current_count * 100.0 / NULLIF(capacity, 0)) < 50
-                THEN 1
-            END) as low_groups_count,
+        COUNT(CASE
+            WHEN capacity <= 0
+            OR (current_count * 100.0 / NULLIF(capacity, 0)) < 50
+            THEN 1
+        END) as low_groups_count,
 
-            COUNT(CASE
-                WHEN capacity > 0
-                AND (current_count * 100.0 / NULLIF(capacity, 0)) >= 50
-                AND (current_count * 100.0 / NULLIF(capacity, 0)) < 80
-                THEN 1
-            END) as in_progress_groups_count,
+        COUNT(CASE
+            WHEN capacity > 0
+            AND (current_count * 100.0 / NULLIF(capacity, 0)) >= 50
+            AND (current_count * 100.0 / NULLIF(capacity, 0)) < 80
+            THEN 1
+        END) as in_progress_groups_count,
 
-            COUNT(CASE
-                WHEN capacity > 0
-                AND (current_count * 100.0 / NULLIF(capacity, 0)) >= 80
-                AND (current_count * 100.0 / NULLIF(capacity, 0)) < 100
-                THEN 1
-            END) as almost_complete_groups_count,
+        COUNT(CASE
+            WHEN capacity > 0
+            AND (current_count * 100.0 / NULLIF(capacity, 0)) >= 80
+            AND (current_count * 100.0 / NULLIF(capacity, 0)) < 100
+            THEN 1
+        END) as almost_complete_groups_count,
 
-            COUNT(CASE
-                WHEN capacity > 0
-                AND current_count >= capacity
-                THEN 1
-            END) as completed_groups_count
+        COUNT(CASE
+            WHEN capacity > 0
+            AND current_count >= capacity
+            THEN 1
+        END) as completed_groups_count
+    ")->first()->toArray();
+});
 
-        ")->first();
-
-        $totalGroups = (int) ($stats->total_groups ?? 0);
-        $totalParticipants = (int) ($stats->total_participants ?? 0);
-        $totalCapacity = (int) ($stats->total_capacity ?? 0);
-
+        $totalGroups = (int) ($stats['total_groups'] ?? 0);
+        $totalParticipants = (int) ($stats['total_participants'] ?? 0);
+        $totalCapacity = (int) ($stats['total_capacity'] ?? 0);
+        $paginatedGroups = [];
+        if (!$request->boolean('groups_only')) {
         // 2. Groups query with server-side search and status filter
         $groupsQuery = Group::select([
             'id',
@@ -129,7 +132,7 @@ class DashboardController extends Controller
                 ];
             }
         );
-
+        }
         // 3. Latest 5 notifications
         $notifications = $request->boolean('groups_only')
             ? []
@@ -155,10 +158,10 @@ class DashboardController extends Controller
                 ? round(($totalParticipants / $totalCapacity) * 100, 2)
                 : 0,
 
-            'low_groups_count' => (int) ($stats->low_groups_count ?? 0),
-            'in_progress_groups_count' => (int) ($stats->in_progress_groups_count ?? 0),
-            'almost_complete_groups_count' => (int) ($stats->almost_complete_groups_count ?? 0),
-            'completed_groups_count' => (int) ($stats->completed_groups_count ?? 0),
+            'low_groups_count' => (int) ($stats['low_groups_count'] ?? 0),
+            'in_progress_groups_count' => (int) ($stats['in_progress_groups_count'] ?? 0),
+            'almost_complete_groups_count' => (int) ($stats['almost_complete_groups_count'] ?? 0),
+            'completed_groups_count' => (int) ($stats['completed_groups_count'] ?? 0),
 
             'groups' => $paginatedGroups,
             'notifications' => $notifications,
