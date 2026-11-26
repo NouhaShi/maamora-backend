@@ -34,7 +34,7 @@ class NotificationController extends Controller
             $query->whereRaw("(data::jsonb->>'group_name') ILIKE ?", ["%{$search}%"]);
         }
 
-        $perPage = min((int) $request->input('per_page', 5), 100);
+        $perPage = max(1, min((int) $request->input('per_page', 5), 100));
         $paginated = $query->paginate($perPage);
 
         return response()->json([
